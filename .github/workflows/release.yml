@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/student-ml-api
+
+jobs:
+  release:
+    name: Test, Build and Publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest -v
+
+      - name: Derive version from Git tag
+        id: meta
+        run: |
+          # v1.1.0 -> 1.1.0 (strip the leading "v")
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+          if [ "$VERSION" != "$FILE_VERSION" ]; then
+            echo "Tag version ($VERSION) does not match VERSION file ($FILE_VERSION)" >&2
+            exit 1
+          fi
+          echo "version=$VERSION"      >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA"  >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          # normalise owner to lowercase (GHCR requires lowercase image names)
+          echo "image=${REGISTRY}/$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg APP_VERSION=${{ steps.meta.outputs.version }} \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --build-arg REPO_URL=${{ github.server_url }}/${{ github.repository }} \
+            --build-arg BUILD_DATE=${{ steps.meta.outputs.build_date }} \
+            -t ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }} \
+            .
+
+      - name: Apply additional tags (latest + commit SHA)
+        run: |
+          docker tag ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }} ${{ steps.meta.outputs.image }}:latest
+          docker tag ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }} ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+          docker push ${{ steps.meta.outputs.image }}:latest
+          docker push ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}
+
+      - name: Print image digest
+        run: docker inspect --format='{{index .RepoDigests 0}}' ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
