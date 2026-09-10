@@ -1,6 +1,6 @@
 import pytest
 
-from app import app, APP_VERSION
+from app import app, APP_VERSION, MODEL_VERSION
 
 
 @pytest.fixture
@@ -16,7 +16,9 @@ def test_health(client):
     assert response.status_code == 200
     assert data["status"] == "healthy"
     assert data["application"] == "student-ml-api"
-    assert data["version"] == APP_VERSION
+    assert data["application_version"] == APP_VERSION
+    assert data["model_version"] == MODEL_VERSION
+    assert "version" not in data
 
 
 def test_predict_success(client):
