@@ -4,6 +4,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request
 
 APP_NAME = "student-ml-api"
+MODEL_VERSION = "model-1"
 VERSION_FILE = Path(__file__).resolve().parent / "VERSION"
 
 
@@ -25,7 +26,8 @@ def health():
     return jsonify({
         "status": "healthy",
         "application": APP_NAME,
-        "version": APP_VERSION,
+        "application_version": APP_VERSION,
+        "model_version": MODEL_VERSION,
     }), 200
 
 
